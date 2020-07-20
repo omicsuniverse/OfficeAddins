@@ -1,0 +1,130 @@
+name: Mapper
+description: Mapping Reference to Target Column
+host: EXCEL
+api_set: {}
+script:
+  content: |
+    $("#set-ref").click(() => tryCatch(setRef));
+    $("#set-tgt").click(() => tryCatch(setTarget));
+
+    let referenceRange = "";
+    let referenceWorksheet = "";
+
+    async function setRef() {
+      await Excel.run(async (context) => {
+        $("button").prop("disabled", true);
+
+        const range = context.workbook.getSelectedRange();
+        range.load("address");
+        await context.sync();
+
+        const adds = range.address;
+        referenceRange = adds;
+        referenceWorksheet = adds.split("!")[0];
+        $(".msg").empty();
+        $("#ref-msg").text("Reference Set!");
+        //console.log(`Found ${adds}`);
+
+        $("button").prop("disabled", false);
+      });
+    }
+
+    async function setTarget() {
+      await Excel.run(async (context) => {
+        $("button").prop("disabled", true);
+        $(".msg").empty();
+
+        const tRange = context.workbook.getSelectedRange();
+        tRange.load("address, isEntireColumn, columnIndex");
+
+        var rAdds = referenceRange.split("!");
+        const rRange = context.workbook.worksheets.getItem(rAdds[0]).getRange(rAdds[1]);
+        rRange.load("columnCount");
+
+        const tNonEmptyRange = context.workbook.functions.countA(tRange);
+        tNonEmptyRange.load("value");
+
+        await context.sync(); //
+
+        if (tRange.isEntireColumn) {
+          const tNonEmptyRowCount = tNonEmptyRange.value;
+          const tAdds = tRange.address.split("!");
+          const tNextRange = context.workbook.worksheets
+            .getItem(tAdds[0])
+            .getRangeByIndexes(0, tRange.columnIndex + 1, tNonEmptyRowCount, 1);
+
+          // insert empty column
+          for (let l = 0; l < rRange.columnCount; l++) {
+            tNextRange.insert(Excel.InsertShiftDirection.right);
+          }
+          $("#tgt-msg").text("Mapping Started!");
+
+          for (let r = 0; r < tNonEmptyRowCount; r++) {
+            const tRowStart = tRange.getCell(r, 0);
+            tRowStart.load("values, address");
+            await context.sync(); //
+            const tCellVal = tRowStart.values[0][0];
+            console.log(`Found ${tCellVal}`);
+            const rRowStart = rRange.findOrNullObject(tCellVal, {
+              matchCase: true,
+              completeMatch: true
+            });
+            rRowStart.load("rowIndex, columnIndex");
+            await context.sync(); //
+            if (rRowStart) {
+              const copyingRange = context.workbook.worksheets
+                .getItem(referenceWorksheet)
+                .getRangeByIndexes(rRowStart.rowIndex, rRowStart.columnIndex, 1, rRange.columnCount);
+              tRange.getCell(r, 1).copyFrom(copyingRange);
+            }
+          }
+        }
+
+        $("#tgt-msg").text("Mapping Completed.");
+        $("button").prop("disabled", false);
+      });
+    }
+
+    /** Default helper for invoking an action and handling errors. */
+    async function tryCatch(callback) {
+      try {
+        await callback();
+      } catch (error) {
+        $("button").prop("disabled", false);
+        // Note: In a production add-in, you'd want to notify the user through your add-in's UI.
+        console.error(error);
+      }
+    }
+  language: typescript
+template:
+  content: "<section class=\"ms-font-m\">\n\t<p class=\"ms-font-m\">This Add-in can map reference to continuous target cells.</p>\n</section>\n\n<section class=\"refs ms-font-m\">\n\t<h3>Step 1</h3>\n\t<p class=\"ms-font-m\">Select some cells in the worksheet, then press <b>Set Reference</b>.</p>\n\t<button id=\"set-ref\" class=\"ms-Button\">\n\t\t<span class=\"ms-Button-label\">Set Reference</span>\n\t</button>\n\t<span id=\"ref-msg\" class=\"msg\"></span>\n</section>\n\n<section class=\"target ms-font-m\">\n\t<h3>Step 2</h3>\n\t<p class=\"ms-font-m\">Select the column in the worksheet that you want to map the reference, then press\n\t\t<b>Map Reference</b>. (This cannot be undone, you must start over if errors occur)</p>\n\t<button id=\"set-tgt\" class=\"ms-Button\">\n\t\t<span class=\"ms-Button-label\">Map Reference</span>\n\t</button>\n\t<span id=\"tgt-msg\" class=\"msg\"></span>\n</section>"
+  language: html
+style:
+  content: |-
+    section.samples {
+        margin-top: 20px;
+    }
+
+    section.samples .ms-Button, section.setup .ms-Button {
+        display: block;
+        margin-bottom: 5px;
+        margin-left: 20px;
+        min-width: 80px;
+    }
+
+    .msg {
+      font-style: italic;
+    }
+  language: css
+libraries: |
+  https://appsforoffice.microsoft.com/lib/1/hosted/office.js
+  @types/office-js
+
+  office-ui-fabric-js@1.4.0/dist/css/fabric.min.css
+  office-ui-fabric-js@1.4.0/dist/css/fabric.components.min.css
+
+  core-js@2.4.1/client/core.min.js
+  @types/core-js
+
+  jquery@3.1.1
+  @types/jquery@3.3.1
